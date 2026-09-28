@@ -1889,6 +1889,9 @@ pub(crate) fn thinking_aliases_from_value(
                     provider: provider.clone(),
                     kind: kind.clone(),
                     oauth_channel: Some(channel.to_string()),
+                    section: None,
+                    provider_index: None,
+                    model_index: None,
                 });
             }
         }
@@ -1990,6 +1993,9 @@ pub(crate) fn speed_aliases_from_value(
                     provider: provider.clone(),
                     kind: kind.clone(),
                     oauth_channel: Some(channel.to_string()),
+                    section: None,
+                    provider_index: None,
+                    model_index: None,
                 });
             }
         }
@@ -2049,7 +2055,7 @@ pub(crate) fn collect_config_thinking_alias_entries(
         let models = models
             .as_sequence()
             .ok_or_else(|| format!("{section}.models must be an array"))?;
-        for model in models {
+        for (model_index, model) in models.iter().enumerate() {
             let Some((source_model, alias, _)) = configured_model_identity(model) else {
                 continue;
             };
@@ -2067,6 +2073,9 @@ pub(crate) fn collect_config_thinking_alias_entries(
                 provider: provider_name.clone(),
                 kind: kind.to_string(),
                 oauth_channel: None,
+                section: Some(section.to_string()),
+                provider_index: Some(provider_index),
+                model_index: Some(model_index),
             });
         }
     }
@@ -2099,7 +2108,7 @@ pub(crate) fn collect_config_speed_alias_entries(
         let models = models
             .as_sequence()
             .ok_or_else(|| format!("{section}.models must be an array"))?;
-        for model in models {
+        for (model_index, model) in models.iter().enumerate() {
             let Some((source_model, alias, _)) = configured_model_identity(model) else {
                 continue;
             };
@@ -2116,6 +2125,9 @@ pub(crate) fn collect_config_speed_alias_entries(
                 provider: provider_name.clone(),
                 kind: kind.to_string(),
                 oauth_channel: None,
+                section: Some(section.to_string()),
+                provider_index: Some(provider_index),
+                model_index: Some(model_index),
             });
         }
     }
@@ -2332,32 +2344,52 @@ pub(crate) fn add_model_alias_to_yaml(
         .as_mapping_mut()
         .ok_or_else(|| "Kernel configuration root must be a YAML mapping".to_string())?;
 
-    if configured_model_alias_exists(root, alias) {
-        return Err(format!("Alias model {alias} already exists"));
-    }
-
+    let prior_occurrences = count_configured_alias_occurrences(root, alias);
     match &source.location {
         ThinkingAliasSourceLocation::Oauth {
             channel,
             force_mapping,
-        } => append_oauth_model_alias(root, channel, &source.source.model, alias, *force_mapping)?,
+        } => {
+            if prior_occurrences > 0 {
+                return Err(format!("Alias model {alias} already exists"));
+            }
+            append_oauth_model_alias(root, channel, &source.source.model, alias, *force_mapping)?
+        }
         ThinkingAliasSourceLocation::ConfigModel {
             section,
             provider_index,
             model_index,
-        } => append_config_thinking_alias(
-            root,
-            section,
-            *provider_index,
-            *model_index,
-            &source.source.model,
-            alias,
-            effort,
-        )?,
+        } => {
+            if configured_model_alias_conflicts(
+                root,
+                alias,
+                Some(ConfigProviderKey {
+                    section,
+                    provider_index: *provider_index,
+                }),
+                None,
+            ) {
+                return Err(format!("Alias model {alias} already exists"));
+            }
+            append_config_thinking_alias(
+                root,
+                section,
+                *provider_index,
+                *model_index,
+                &source.source.model,
+                alias,
+                effort,
+            )?
+        }
     }
 
-    let scope = AliasPayloadScope::for_protocol(&source.source.protocol);
-    remove_alias_payload_options(root, alias, &scope)?;
+    // The effort/fast override is bound to the alias, so it is shared by every
+    // source registered under it. When the alias already exists and the form
+    // carries no override, keep the existing rules untouched.
+    if prior_occurrences == 0 || !effort.is_empty() || fast {
+        let scope = AliasPayloadScope::for_protocol(&source.source.protocol);
+        remove_alias_payload_options(root, alias, &scope)?;
+    }
     if !effort.is_empty() {
         let mut params_mapping = serde_norway::Mapping::new();
         insert_thinking_effort_params(&mut params_mapping, &source.source, effort)?;
@@ -2432,40 +2464,66 @@ pub(crate) fn add_speed_alias_to_yaml(
         .as_mapping_mut()
         .ok_or_else(|| "Kernel configuration root must be a YAML mapping".to_string())?;
 
-    if configured_model_alias_exists(root, alias) {
-        return Err(format!("Alias model {alias} already exists"));
-    }
-
+    let prior_occurrences = count_configured_alias_occurrences(root, alias);
     match &source.location {
         ThinkingAliasSourceLocation::Oauth {
             channel,
             force_mapping,
-        } => append_oauth_model_alias(root, channel, &source.source.model, alias, *force_mapping)?,
+        } => {
+            if prior_occurrences > 0 {
+                return Err(format!("Alias model {alias} already exists"));
+            }
+            append_oauth_model_alias(root, channel, &source.source.model, alias, *force_mapping)?
+        }
         ThinkingAliasSourceLocation::ConfigModel {
             section,
             provider_index,
             model_index,
-        } => append_config_speed_alias(
-            root,
-            section,
-            *provider_index,
-            *model_index,
-            &source.source.model,
-            alias,
-        )?,
+        } => {
+            if configured_model_alias_conflicts(
+                root,
+                alias,
+                Some(ConfigProviderKey {
+                    section,
+                    provider_index: *provider_index,
+                }),
+                None,
+            ) {
+                return Err(format!("Alias model {alias} already exists"));
+            }
+            append_config_speed_alias(
+                root,
+                section,
+                *provider_index,
+                *model_index,
+                &source.source.model,
+                alias,
+            )?
+        }
     }
 
-    remove_alias_payload_options(
-        root,
-        alias,
-        &AliasPayloadScope::for_protocol(&source.source.protocol),
-    )?;
-    let mut params_mapping = serde_norway::Mapping::new();
-    params_mapping.insert(
-        yaml_key("service_tier"),
-        serde_norway::Value::String("priority".to_string()),
-    );
-    append_alias_payload_override(root, alias, &source.source.protocol, params_mapping)?;
+    if prior_occurrences == 0 {
+        remove_alias_payload_options(
+            root,
+            alias,
+            &AliasPayloadScope::for_protocol(&source.source.protocol),
+        )?;
+        let mut params_mapping = serde_norway::Mapping::new();
+        params_mapping.insert(
+            yaml_key("service_tier"),
+            serde_norway::Value::String("priority".to_string()),
+        );
+        append_alias_payload_override(root, alias, &source.source.protocol, params_mapping)?;
+    } else if find_speed_alias_service_tier(root, alias, &source.source.protocol).is_none() {
+        // The alias already exists with its own override rules; only ensure the
+        // priority service tier without disturbing shared effort settings.
+        let mut params_mapping = serde_norway::Mapping::new();
+        params_mapping.insert(
+            yaml_key("service_tier"),
+            serde_norway::Value::String("priority".to_string()),
+        );
+        append_alias_payload_override(root, alias, &source.source.protocol, params_mapping)?;
+    }
 
     render_updated_core_yaml(&mut document, updated)
 }
@@ -2620,13 +2678,14 @@ pub(crate) fn remove_thinking_alias_from_yaml(
     content: &str,
     alias: &str,
 ) -> Result<String, String> {
-    remove_thinking_alias_from_yaml_for_channel(content, alias, None)
+    remove_thinking_alias_from_yaml_for_channel(content, alias, None, None)
 }
 
 pub(crate) fn remove_thinking_alias_from_yaml_for_channel(
     content: &str,
     alias: &str,
     oauth_channel: Option<&str>,
+    target: Option<ConfigModelKey>,
 ) -> Result<String, String> {
     let mut document = yaml_serde_edit::YamlValue::parse(content)
         .map_err(|error| format!("Failed to parse kernel YAML configuration: {error}"))?;
@@ -2634,12 +2693,22 @@ pub(crate) fn remove_thinking_alias_from_yaml_for_channel(
     let root = updated
         .as_mapping_mut()
         .ok_or_else(|| "Kernel configuration root must be a YAML mapping".to_string())?;
-    let mut removed = remove_oauth_model_alias(root, alias, oauth_channel)?;
+    let mut removed = if target.is_some() {
+        // Targeted removal only touches the one provider entry; OAuth channels
+        // are managed by their own flows.
+        false
+    } else {
+        remove_oauth_model_alias(root, alias, oauth_channel)?
+    };
     if oauth_channel.is_none() {
-        removed |= remove_config_model_alias(root, "codex-api-key", alias)?;
-        removed |= remove_config_model_alias(root, "openai-compatibility", alias)?;
-        removed |= remove_config_model_alias(root, "claude-api-key", alias)?;
-        removed |= remove_config_model_alias(root, "gemini-api-key", alias)?;
+        if let Some(key) = target {
+            removed |= remove_config_model_alias_entry_at(root, key, alias)?;
+        } else {
+            removed |= remove_config_model_alias(root, "codex-api-key", alias)?;
+            removed |= remove_config_model_alias(root, "openai-compatibility", alias)?;
+            removed |= remove_config_model_alias(root, "claude-api-key", alias)?;
+            removed |= remove_config_model_alias(root, "gemini-api-key", alias)?;
+        }
     }
     if !removed {
         return Err(format!("Alias model {alias} does not exist. Refresh and try again"));
@@ -2651,13 +2720,14 @@ pub(crate) fn remove_thinking_alias_from_yaml_for_channel(
 
 #[cfg(test)]
 pub(crate) fn remove_speed_alias_from_yaml(content: &str, alias: &str) -> Result<String, String> {
-    remove_speed_alias_from_yaml_for_channel(content, alias, None)
+    remove_speed_alias_from_yaml_for_channel(content, alias, None, None)
 }
 
 pub(crate) fn remove_speed_alias_from_yaml_for_channel(
     content: &str,
     alias: &str,
     oauth_channel: Option<&str>,
+    target: Option<ConfigModelKey>,
 ) -> Result<String, String> {
     let mut document = yaml_serde_edit::YamlValue::parse(content)
         .map_err(|error| format!("Failed to parse kernel YAML configuration: {error}"))?;
@@ -2665,10 +2735,18 @@ pub(crate) fn remove_speed_alias_from_yaml_for_channel(
     let root = updated
         .as_mapping_mut()
         .ok_or_else(|| "Kernel configuration root must be a YAML mapping".to_string())?;
-    let mut removed = remove_oauth_model_alias(root, alias, oauth_channel)?;
+    let mut removed = if target.is_some() {
+        false
+    } else {
+        remove_oauth_model_alias(root, alias, oauth_channel)?
+    };
     if oauth_channel.is_none() {
-        removed |= remove_config_speed_alias(root, "codex-api-key", "codex", alias)?;
-        removed |= remove_config_speed_alias(root, "openai-compatibility", "openai", alias)?;
+        if let Some(key) = target {
+            removed |= remove_config_speed_alias_entry_at(root, key, alias)?;
+        } else {
+            removed |= remove_config_speed_alias(root, "codex-api-key", "codex", alias)?;
+            removed |= remove_config_speed_alias(root, "openai-compatibility", "openai", alias)?;
+        }
     }
     if !removed {
         return Err(format!("Alias model {alias} does not exist. Refresh and try again"));
@@ -2676,6 +2754,83 @@ pub(crate) fn remove_speed_alias_from_yaml_for_channel(
     let scope = AliasPayloadScope::after_removal(root, alias, oauth_channel);
     remove_alias_payload_options(root, alias, &scope)?;
     render_updated_core_yaml(&mut document, updated)
+}
+
+pub(crate) fn remove_config_model_alias_entry_at(
+    root: &mut serde_norway::Mapping,
+    key: ConfigModelKey,
+    alias: &str,
+) -> Result<bool, String> {
+    let Some(providers) = yaml_mapping_value_mut(root, key.section)
+        .and_then(serde_norway::Value::as_sequence_mut) else {
+        return Ok(false);
+    };
+    let Some(provider) = providers
+        .get_mut(key.provider_index)
+        .and_then(serde_norway::Value::as_mapping_mut)
+    else {
+        return Ok(false);
+    };
+    let Some(models) = yaml_mapping_value_mut(provider, "models")
+        .and_then(serde_norway::Value::as_sequence_mut)
+    else {
+        return Ok(false);
+    };
+    let is_target = models
+        .get(key.model_index)
+        .and_then(configured_model_identity)
+        .is_some_and(|(source, client, _)| {
+            source != client && client.eq_ignore_ascii_case(alias)
+        });
+    if !is_target {
+        return Ok(false);
+    }
+    models.remove(key.model_index);
+    Ok(true)
+}
+
+fn remove_config_speed_alias_entry_at(
+    root: &mut serde_norway::Mapping,
+    key: ConfigModelKey,
+    alias: &str,
+) -> Result<bool, String> {
+    remove_config_model_alias_entry_at(root, key, alias)
+}
+
+pub(crate) fn remove_oauth_model_alias_entry_at(
+    root: &mut serde_norway::Mapping,
+    channel: &str,
+    model_index: usize,
+    alias: &str,
+) -> Result<bool, String> {
+    let Some(entries) = yaml_mapping_value_mut(root, "oauth-model-alias")
+        .and_then(serde_norway::Value::as_mapping_mut)
+        .and_then(|channels| channels.get_mut(&yaml_key(channel)))
+        .and_then(serde_norway::Value::as_sequence_mut)
+    else {
+        return Ok(false);
+    };
+    let is_target = entries
+        .get(model_index)
+        .and_then(|entry| entry.as_mapping())
+        .and_then(|mapping| yaml_mapping_value(mapping, "alias"))
+        .and_then(serde_norway::Value::as_str)
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case(alias));
+    if !is_target {
+        return Ok(false);
+    }
+    entries.remove(model_index);
+    if entries.is_empty() {
+        if let Some(channels) = yaml_mapping_value_mut(root, "oauth-model-alias")
+            .and_then(serde_norway::Value::as_mapping_mut)
+        {
+            channels.remove(&yaml_key(channel));
+            if channels.is_empty() {
+                root.remove(yaml_key("oauth-model-alias"));
+            }
+        }
+    }
+    Ok(true)
 }
 
 pub(crate) fn remove_oauth_model_alias(
@@ -2722,8 +2877,59 @@ pub(crate) fn remove_oauth_model_alias(
     Ok(removed)
 }
 
-pub(crate) fn configured_model_alias_exists(root: &serde_norway::Mapping, alias: &str) -> bool {
-    let oauth_exists = yaml_mapping_value(root, "oauth-model-alias")
+/// Identifies one alias entry inside a provider configuration section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConfigModelKey {
+    pub(crate) section: &'static str,
+    pub(crate) provider_index: usize,
+    pub(crate) model_index: usize,
+}
+
+/// Identifies one provider entry inside a configuration section.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ConfigProviderKey {
+    pub(crate) section: &'static str,
+    pub(crate) provider_index: usize,
+}
+
+pub(crate) fn config_model_key_from_parts(
+    section: Option<String>,
+    provider_index: Option<usize>,
+    model_index: Option<usize>,
+) -> Result<Option<ConfigModelKey>, String> {
+    match (section, provider_index, model_index) {
+        (None, None, None) => Ok(None),
+        (Some(section), Some(provider_index), Some(model_index)) => {
+            let matched = MODEL_ALIAS_CONFIG_SECTIONS
+                .iter()
+                .find(|candidate| **candidate == section.as_str())
+                .ok_or_else(|| "Unknown model configuration section".to_string())?;
+            Ok(Some(ConfigModelKey {
+                section: matched,
+                provider_index,
+                model_index,
+            }))
+        }
+        _ => Err("Invalid alias model location".to_string()),
+    }
+}
+
+/// Reports whether `alias` would conflict when created at `target`.
+///
+/// The same alias may exist on several provider entries: the kernel serves one
+/// client-visible model ID from every provider that registers it and fails over
+/// between them. Inside a single `openai-compatibility` provider the kernel
+/// additionally round-robins same-alias upstream models, so duplicates are
+/// allowed there too. Other sections keep one alias entry per provider because
+/// the kernel resolves those aliases first-entry-wins. OAuth channels always
+/// conflict because their alias table is deduplicated per channel.
+pub(crate) fn configured_model_alias_conflicts(
+    root: &serde_norway::Mapping,
+    alias: &str,
+    target: Option<ConfigProviderKey>,
+    exclude: Option<ConfigModelKey>,
+) -> bool {
+    let oauth_conflict = yaml_mapping_value(root, "oauth-model-alias")
         .and_then(serde_norway::Value::as_mapping)
         .is_some_and(|channels| {
             channels.values().any(|entries| {
@@ -2738,8 +2944,82 @@ pub(crate) fn configured_model_alias_exists(root: &serde_norway::Mapping, alias:
                 })
             })
         });
-    oauth_exists
-        || MODEL_ALIAS_CONFIG_SECTIONS
+    if oauth_conflict {
+        return true;
+    }
+    for section in MODEL_ALIAS_CONFIG_SECTIONS {
+        let Some(providers) = yaml_mapping_value(root, section).and_then(serde_norway::Value::as_sequence)
+        else {
+            continue;
+        };
+        for (provider_index, provider) in providers.iter().enumerate() {
+            let Some(models) = provider
+                .as_mapping()
+                .and_then(|provider| yaml_mapping_value(provider, "models"))
+                .and_then(serde_norway::Value::as_sequence)
+            else {
+                continue;
+            };
+            for (model_index, model) in models.iter().enumerate() {
+                if exclude.is_some_and(|exclude| {
+                    exclude.section == *section
+                        && exclude.provider_index == provider_index
+                        && exclude.model_index == model_index
+                }) {
+                    continue;
+                }
+                let occupies = configured_model_identity(model)
+                    .is_some_and(|(_, client, _)| client.eq_ignore_ascii_case(alias));
+                if !occupies {
+                    continue;
+                }
+                match target {
+                    // Same provider as the new entry: only openai-compatibility
+                    // may repeat an alias (the kernel pools those upstreams).
+                    Some(target)
+                        if target.section == *section && target.provider_index == provider_index =>
+                    {
+                        if *section != "openai-compatibility" {
+                            return true;
+                        }
+                    }
+                    // A different provider serving the same alias is the
+                    // supported multi-source setup, so it does not conflict.
+                    _ => {}
+                }
+            }
+        }
+    }
+    false
+}
+
+pub(crate) fn configured_model_alias_exists(root: &serde_norway::Mapping, alias: &str) -> bool {
+    count_configured_alias_occurrences(root, alias) > 0
+}
+
+pub(crate) fn count_configured_alias_occurrences(
+    root: &serde_norway::Mapping,
+    alias: &str,
+) -> usize {
+    let oauth_occurrences = yaml_mapping_value(root, "oauth-model-alias")
+        .and_then(serde_norway::Value::as_mapping)
+        .map(|channels| {
+            channels
+                .values()
+                .filter_map(serde_norway::Value::as_sequence)
+                .flatten()
+                .filter(|entry| {
+                    entry
+                        .as_mapping()
+                        .and_then(|mapping| yaml_mapping_value(mapping, "alias"))
+                        .and_then(serde_norway::Value::as_str)
+                        .is_some_and(|value| value.trim().eq_ignore_ascii_case(alias))
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    oauth_occurrences
+        + MODEL_ALIAS_CONFIG_SECTIONS
             .into_iter()
             .filter_map(|section| yaml_mapping_value(root, section))
             .filter_map(serde_norway::Value::as_sequence)
@@ -2749,7 +3029,8 @@ pub(crate) fn configured_model_alias_exists(root: &serde_norway::Mapping, alias:
             .filter_map(serde_norway::Value::as_sequence)
             .flatten()
             .filter_map(|model| configured_model_identity(model).map(|(_, alias, _)| alias))
-            .any(|value| value.eq_ignore_ascii_case(alias))
+            .filter(|value| value.eq_ignore_ascii_case(alias))
+            .count()
 }
 
 pub(crate) fn remove_config_model_alias(
@@ -2826,13 +3107,13 @@ pub(crate) fn remove_config_speed_alias(
     Ok(removed)
 }
 
-struct AliasPayloadScope {
+pub(crate) struct AliasPayloadScope {
     protocol: Option<String>,
     preserved_protocols: BTreeSet<String>,
 }
 
 impl AliasPayloadScope {
-    fn for_protocol(protocol: &str) -> Self {
+    pub(crate) fn for_protocol(protocol: &str) -> Self {
         Self {
             protocol: Some(protocol.to_string()),
             preserved_protocols: BTreeSet::new(),
@@ -2912,7 +3193,7 @@ impl AliasPayloadScope {
     }
 }
 
-fn remove_alias_payload_options(
+pub(crate) fn remove_alias_payload_options(
     root: &mut serde_norway::Mapping,
     alias: &str,
     scope: &AliasPayloadScope,

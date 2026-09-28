@@ -284,7 +284,7 @@ fn oauth_alias_reader_and_delete_preserve_the_exact_channel() {
         entry.oauth_channel.as_deref() == Some("antigravity") && entry.kind == "antigravity-oauth"
     }));
     let rendered =
-        remove_thinking_alias_from_yaml_for_channel(input, "shared-alias", Some("antigravity"))
+        remove_thinking_alias_from_yaml_for_channel(input, "shared-alias", Some("antigravity"), None)
             .unwrap();
 
     assert!(!rendered.contains("antigravity:"), "{rendered}");
@@ -375,6 +375,9 @@ fn thinking_alias_adds_fork_and_matching_payload_rule() {
             provider: "Codex OAuth".to_string(),
             kind: "codex-oauth".to_string(),
             oauth_channel: Some("codex".to_string()),
+            section: None,
+            provider_index: None,
+            model_index: None,
         }]
     );
 }
@@ -395,6 +398,9 @@ fn model_alias_can_be_created_without_overrides() {
             provider: "Codex OAuth".to_string(),
             kind: "codex-oauth".to_string(),
             oauth_channel: Some("codex".to_string()),
+            section: None,
+            provider_index: None,
+            model_index: None,
         }]
     );
 }
@@ -495,6 +501,9 @@ fn speed_alias_adds_fast_service_tier_and_removes_only_its_rule() {
             provider: "Codex OAuth".to_string(),
             kind: "codex-oauth".to_string(),
             oauth_channel: Some("codex".to_string()),
+            section: None,
+            provider_index: None,
+            model_index: None,
         }]
     );
 
@@ -574,16 +583,17 @@ fn existing_aliases_with_spaces_can_be_loaded_and_deleted() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].alias, "Codex Auto Review");
     assert_eq!(entries[0].source_model, "codex-auto-review");
-    let context = model_alias_edit_context(content, "Codex Auto Review", &[]).unwrap();
+    let context = model_alias_edit_context(content, "Codex Auto Review", None, &[]).unwrap();
     assert_eq!(context.source.model, "codex-auto-review");
     let deleted = remove_thinking_alias_from_yaml(content, "Codex Auto Review").unwrap();
     assert!(thinking_aliases_from_yaml(&deleted).unwrap().is_empty());
     assert!(deleted.contains("name: keep-me"));
     assert!(!deleted.contains("Codex Auto Review"));
-    let source = resolve_model_alias_edit_source(content, "Codex Auto Review", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(content, "Codex Auto Review", None, &[]).unwrap();
     let renamed = edit_model_alias_in_yaml(
         content,
         "Codex Auto Review",
+        None,
         &source,
         "codex-auto-review-alias",
         "",
@@ -710,7 +720,7 @@ fn edit_model_alias_replaces_name_effort_and_fast_in_memory() {
     let source = test_oauth_thinking_source("codex", "gpt-test");
     let original =
         add_model_alias_to_yaml("port: 8317\n", &source, "old-alias", "high", true).unwrap();
-    let updated = edit_model_alias_in_yaml(&original, "old-alias", &source, "new-alias", "low", false).unwrap();
+    let updated = edit_model_alias_in_yaml(&original, "old-alias", None, &source, "new-alias", "low", false).unwrap();
     let entries = thinking_aliases_from_yaml(&updated).unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].alias, "new-alias");
@@ -719,7 +729,7 @@ fn edit_model_alias_replaces_name_effort_and_fast_in_memory() {
     assert!(updated.contains("port: 8317"));
     assert!(!updated.contains("old-alias"));
     let unchanged_name =
-        edit_model_alias_in_yaml(&original, "old-alias", &source, "old-alias", "", false).unwrap();
+        edit_model_alias_in_yaml(&original, "old-alias", None, &source, "old-alias", "", false).unwrap();
     assert_eq!(
         thinking_aliases_from_yaml(&unchanged_name).unwrap()[0].effort,
         None
@@ -728,9 +738,9 @@ fn edit_model_alias_replaces_name_effort_and_fast_in_memory() {
 
 #[test]
 fn edit_model_alias_rejects_missing_and_ambiguous_aliases() {
-    assert!(resolve_model_alias_edit_source("port: 8317\n", "missing", &[]).is_err());
+    assert!(resolve_model_alias_edit_source("port: 8317\n", "missing", None, &[]).is_err());
     let content = "oauth-model-alias:\n  codex:\n    - name: model-a\n      alias: shared\n  claude:\n    - name: model-b\n      alias: shared\n";
-    assert!(resolve_model_alias_edit_source(content, "shared", &[]).is_err());
+    assert!(resolve_model_alias_edit_source(content, "shared", None, &[]).is_err());
 }
 
 #[test]
@@ -748,7 +758,7 @@ fn devin_aliases_use_the_devin_channel_without_unsupported_overrides() {
     assert!(rendered.contains("name: devin/swe-2"), "{rendered}");
     assert!(rendered.contains("alias: swe-2"), "{rendered}");
     assert!(!rendered.contains("payload:"), "{rendered}");
-    let edited = model_alias_edit_context(&rendered, "swe-2", &definitions).unwrap();
+    let edited = model_alias_edit_context(&rendered, "swe-2", None, &definitions).unwrap();
     assert!(edited.source.reasoning_levels.is_empty());
     for capability in [AliasSourceCapability::Reasoning, AliasSourceCapability::Fast] {
         assert!(resolved_oauth_alias_sources("{}\n", &definitions, &available_models, capability).unwrap().is_empty());

@@ -8,6 +8,8 @@ mod agent_transactions;
 mod alias_delete;
 mod alias_edit;
 mod alias_edit_regressions;
+mod alias_e2e;
+mod alias_multi_source;
 mod alias_save;
 mod app_settings;
 mod app_update;

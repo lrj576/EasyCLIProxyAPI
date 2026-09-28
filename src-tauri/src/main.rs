@@ -1225,6 +1225,9 @@ struct ThinkingAliasEntry {
     provider: String,
     kind: String,
     oauth_channel: Option<String>,
+    section: Option<String>,
+    provider_index: Option<usize>,
+    model_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -1236,6 +1239,9 @@ struct SpeedAliasEntry {
     provider: String,
     kind: String,
     oauth_channel: Option<String>,
+    section: Option<String>,
+    provider_index: Option<usize>,
+    model_index: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

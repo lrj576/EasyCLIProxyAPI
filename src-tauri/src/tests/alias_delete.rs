@@ -41,11 +41,11 @@ fn api_alias_can_be_deleted_after_editing_away_all_options() {
             alias_source_supports_fast(&source),
         )
         .unwrap();
-        let edit_source = resolve_model_alias_edit_source(&created, "editable", &[]).unwrap();
+        let edit_source = resolve_model_alias_edit_source(&created, "editable", None, &[]).unwrap();
         let edited =
-            edit_model_alias_in_yaml(&created, "editable", &edit_source, "editable", "", false)
+            edit_model_alias_in_yaml(&created, "editable", None, &edit_source, "editable", "", false)
                 .unwrap();
-        let context = model_alias_edit_context(&edited, "editable", &[]).unwrap();
+        let context = model_alias_edit_context(&edited, "editable", None, &[]).unwrap();
         assert_eq!(context.effort, None);
         assert!(!context.fast);
         let deleted = remove_thinking_alias_from_yaml(&edited, "editable").unwrap();
@@ -69,9 +69,9 @@ fn channel_deletion_preserves_other_protocols_and_shared_models() {
     let original = "oauth-model-alias:\n  codex: [{name: model-a, alias: shared}]\n  claude: [{name: model-b, alias: shared}]\npayload:\n  override:\n    - models: [{name: shared, protocol: codex}]\n      params: {reasoning.effort: high, service_tier: priority}\n    - models: [{name: shared, protocol: claude}, {name: other, protocol: codex}]\n      params: {output_config.effort: high}\n";
     for speed in [false, true] {
         let deleted = if speed {
-            remove_speed_alias_from_yaml_for_channel(original, "shared", Some("codex"))
+            remove_speed_alias_from_yaml_for_channel(original, "shared", Some("codex"), None)
         } else {
-            remove_thinking_alias_from_yaml_for_channel(original, "shared", Some("codex"))
+            remove_thinking_alias_from_yaml_for_channel(original, "shared", Some("codex"), None)
         }
         .unwrap();
         let entries = thinking_aliases_from_yaml(&deleted).unwrap();
@@ -91,14 +91,14 @@ fn channel_deletion_preserves_wildcard_rules_for_surviving_aliases() {
         let original = format!("oauth-model-alias:\n  codex: [{{name: model-a, alias: shared}}]\n  claude: [{{name: model-b, alias: shared}}]\npayload:\n  override:\n    - models: [{{name: shared{protocol}}}]\n      params: {{reasoning.effort: high, output_config.effort: high, service_tier: priority}}\n");
         for speed in [false, true] {
             let deleted = if speed {
-                remove_speed_alias_from_yaml_for_channel(&original, "shared", Some("codex"))
+                remove_speed_alias_from_yaml_for_channel(&original, "shared", Some("codex"), None)
             } else {
-                remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"))
+                remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"), None)
             }
             .unwrap();
             assert_eq!(json(&deleted)["payload"], json(&original)["payload"]);
             let deleted =
-                remove_thinking_alias_from_yaml_for_channel(&deleted, "shared", Some("claude"))
+                remove_thinking_alias_from_yaml_for_channel(&deleted, "shared", Some("claude"), None)
                     .unwrap();
             assert!(json(&deleted).get("payload").is_none());
         }
@@ -115,9 +115,9 @@ fn channel_deletion_preserves_rules_used_by_same_protocol_mappings() {
         let original = format!("oauth-model-alias:\n  codex: [{{name: model-a, alias: shared}}]\n{surviving}payload:\n  override:\n    - models: [{{name: shared, protocol: codex}}]\n      params: {{reasoning.effort: high, service_tier: priority}}\n");
         for speed in [false, true] {
             let deleted = if speed {
-                remove_speed_alias_from_yaml_for_channel(&original, "shared", Some("codex"))
+                remove_speed_alias_from_yaml_for_channel(&original, "shared", Some("codex"), None)
             } else {
-                remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"))
+                remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"), None)
             }
             .unwrap();
             assert_eq!(json(&deleted)["payload"], json(&original)["payload"]);
@@ -139,7 +139,7 @@ fn raw_alias_options_do_not_survive_deletion_and_recreation() {
         .unwrap();
         assert!(json(&deleted).get("payload").is_none());
         let recreated = add_model_alias_to_yaml(&deleted, &source, "reused", "low", false).unwrap();
-        let context = model_alias_edit_context(&recreated, "reused", &[]).unwrap();
+        let context = model_alias_edit_context(&recreated, "reused", None, &[]).unwrap();
         assert_eq!(context.effort.as_deref(), Some("low"));
         assert!(!context.fast);
     }
@@ -156,7 +156,7 @@ fn creation_cleans_orphaned_raw_options_for_model_and_speed_aliases() {
             add_model_alias_to_yaml(original, &source, "reused", "low", false)
         }
         .unwrap();
-        let context = model_alias_edit_context(&created, "reused", &[]).unwrap();
+        let context = model_alias_edit_context(&created, "reused", None, &[]).unwrap();
         assert_eq!(
             context.effort.as_deref(),
             if speed { None } else { Some("low") }
@@ -180,7 +180,7 @@ fn option_cleanup_preserves_shared_models_conditions_and_unrelated_parameters() 
         let original = format!("oauth-model-alias:\n  codex: [{{name: model-a, alias: shared}}]\n  claude: [{{name: model-b, alias: shared}}]\npayload:\n  {section}:\n    - models:\n        - name: shared\n          protocol: codex\n          headers: {{X-Client: premium}}\n          from-protocol: responses\n        - name: other\n          protocol: codex\n        - name: shared\n          protocol: claude\n      params: {{reasoning.effort: {effort}, service_tier: {tier}, temperature: {temperature}}}\n      match: [{{metadata.client: codex}}]\n  default:\n    - models: [{{name: shared}}]\n      params: {{max_tokens: 4096}}\n  default-raw:\n    - models: [{{name: shared}}]\n      params: {{top_p: '0.9'}}\n  filter:\n    - models: [{{name: shared}}]\n      params: [metadata.internal]\n");
         let before = json(&original);
         let deleted =
-            remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"))
+            remove_thinking_alias_from_yaml_for_channel(&original, "shared", Some("codex"), None)
                 .unwrap();
         let after = json(&deleted);
         let original_rule = &before["payload"][section][0];

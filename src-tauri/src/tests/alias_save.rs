@@ -598,7 +598,7 @@ async fn alias_save_serializes_concurrent_writers_and_rejects_the_stale_one() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn alias_save_can_retry_after_restoration_reformats_yaml() {
-    let context = model_alias_edit_context(CURRENT, "my-alias", &[]).unwrap();
+    let context = model_alias_edit_context(CURRENT, "my-alias", None, &[]).unwrap();
     let core = MockCore::new(CURRENT, Failure::YamlBeforeWrite);
     let updated = CURRENT.replace("my-alias", "renamed");
     assert!(
@@ -609,9 +609,9 @@ async fn alias_save_can_retry_after_restoration_reformats_yaml() {
     );
     let restored = fetch_management_config_yaml(&core.config).await.unwrap();
     validate_model_alias_revision(&restored, Some(&context.revision)).unwrap();
-    let source = resolve_model_alias_edit_source(&restored, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(&restored, "my-alias", None, &[]).unwrap();
     let updated =
-        edit_model_alias_in_yaml(&restored, "my-alias", &source, "renamed", "high", false).unwrap();
+        edit_model_alias_in_yaml(&restored, "my-alias", None, &source, "renamed", "high", false).unwrap();
     put_management_alias_config_changes(&core.config, &restored, &updated)
         .await
         .unwrap();

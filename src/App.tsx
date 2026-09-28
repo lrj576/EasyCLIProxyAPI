@@ -5,6 +5,8 @@ import { listen } from '@tauri-apps/api/event';
 import {
   Bot,
   Check,
+  ChevronsLeft,
+  ChevronsRight,
   ChevronUp,
   ExternalLink,
   History,
@@ -13,10 +15,13 @@ import {
   Lock,
   LogIn,
   MessageCircle,
+  Monitor,
+  Moon,
   Network,
   PackageOpen,
   ServerCog,
   Settings,
+  Sun,
   X,
 } from 'lucide-react';
 import appLogo from './assets/logo.jpg';
@@ -38,6 +43,16 @@ import { useThemePreference } from './theme';
 import { useDialogFocusTrap } from './components/useDialogFocusTrap';
 
 const CONTACT_URL = 'https://qm.qq.com/q/3queDaIG';
+
+const SIDEBAR_COLLAPSED_KEY = 'easy-cli-proxy-api.sidebar-collapsed';
+
+function detectSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const pages = [
   {
@@ -131,6 +146,7 @@ function AppContent() {
   const [active, setActive] = useState<PageId>('home');
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
   const [theme, setTheme] = useThemePreference();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(detectSidebarCollapsed);
   const [windowsClosePrompt, setWindowsClosePrompt] = useState<WindowsClosePrompt | null>(null);
   const closeDialogRef = useDialogFocusTrap<HTMLElement>({
     active: Boolean(windowsClosePrompt),
@@ -160,6 +176,13 @@ function AppContent() {
       setActive('home');
     }
   }, [active, coreReady]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, sidebarCollapsed ? '1' : '0');
+    } catch {
+    }
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (!languageMenuOpen) return undefined;
@@ -292,15 +315,27 @@ function AppContent() {
 
   return (
     <>
-      <div className={`app-shell${active === "easy" ? " app-shell-easy-mode" : ""}`}>
+      <div className={`app-shell${active === "easy" ? " app-shell-easy-mode" : ""}${sidebarCollapsed ? " app-shell-collapsed" : ""}`}>
         {active !== "easy" ? (
-          <aside className="sidebar">
+          <aside className={`sidebar${sidebarCollapsed ? ' sidebar-collapsed' : ''}`}>
+          <div className="sidebar-head">
           <div className="sidebar-brand" title={t('app.desktopConsole')}>
             <img src={appLogo} alt="" className="brand-mark brand-logo" />
             <div>
               <strong>EasyCLIProxyAPI</strong>
               <span>{t('app.desktopConsole')}</span>
             </div>
+          </div>
+          <button
+            type="button"
+            className="sidebar-collapse-toggle"
+            aria-label={sidebarCollapsed ? t('app.sidebar.expand') : t('app.sidebar.collapse')}
+            aria-pressed={sidebarCollapsed}
+            title={sidebarCollapsed ? t('app.sidebar.expand') : t('app.sidebar.collapse')}
+            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+          >
+            {sidebarCollapsed ? <ChevronsRight size={16} aria-hidden="true" /> : <ChevronsLeft size={16} aria-hidden="true" />}
+          </button>
           </div>
 
           <nav className="nav-section" aria-label={t('app.navigation')}>
@@ -321,7 +356,11 @@ function AppContent() {
                     .filter(Boolean)
                     .join(' ')}
                   disabled={locked}
-                  title={locked ? t('app.nav.lockedHint') : undefined}
+                  title={locked
+                    ? t('app.nav.lockedHint')
+                    : sidebarCollapsed
+                      ? t(page.labelKey)
+                      : undefined}
                   onClick={() => select(page.id)}
                 >
                   <Icon size={17} aria-hidden="true" />
@@ -348,8 +387,10 @@ function AppContent() {
             <button
               type="button"
               className="sidebar-easy-entry"
+              title={sidebarCollapsed ? t('app.nav.easy') : undefined}
               onClick={() => select('easy')}
             >
+              <Bot size={17} aria-hidden="true" className="sidebar-easy-entry-icon" />
               <span>{t('app.nav.easy')}</span>
             </button>
             <div
@@ -364,7 +405,8 @@ function AppContent() {
                 title={t('app.theme.switchToLight')}
                 onClick={() => setTheme('light')}
               >
-                {t('app.theme.light')}
+                <Sun size={15} aria-hidden="true" className="sidebar-theme-icon" />
+                <span>{t('app.theme.light')}</span>
               </button>
               <button
                 type="button"
@@ -373,7 +415,8 @@ function AppContent() {
                 title={t('app.theme.switchToDark')}
                 onClick={() => setTheme('dark')}
               >
-                {t('app.theme.dark')}
+                <Moon size={15} aria-hidden="true" className="sidebar-theme-icon" />
+                <span>{t('app.theme.dark')}</span>
               </button>
               <button
                 type="button"
@@ -382,7 +425,8 @@ function AppContent() {
                 title={t('app.theme.switchToSystem')}
                 onClick={() => setTheme('system')}
               >
-                {t('app.theme.system')}
+                <Monitor size={15} aria-hidden="true" className="sidebar-theme-icon" />
+                <span>{t('app.theme.system')}</span>
               </button>
             </div>
             <div ref={languageMenuRef} className="sidebar-language">

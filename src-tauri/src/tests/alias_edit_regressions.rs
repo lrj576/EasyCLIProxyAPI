@@ -9,11 +9,12 @@ fn json(content: &str) -> serde_json::Value {
 }
 
 fn unchanged_save(content: &str) -> String {
-    let context = model_alias_edit_context(content, "my-alias", &[]).unwrap();
-    let source = resolve_model_alias_edit_source(content, "my-alias", &[]).unwrap();
+    let context = model_alias_edit_context(content, "my-alias", None, &[]).unwrap();
+    let source = resolve_model_alias_edit_source(content, "my-alias", None, &[]).unwrap();
     edit_model_alias_in_yaml(
         content,
         "my-alias",
+        None,
         &source,
         "my-alias",
         context.effort.as_deref().unwrap_or(""),
@@ -58,10 +59,10 @@ fn alias_regression_noop_preserves_conditional_effort_and_fast() {
 #[test]
 fn alias_regression_rejects_collision_with_real_model() {
     let content = "codex-api-key:\n  - models:\n      - name: my-alias\n      - name: gpt-test\n        alias: my-alias\n";
-    assert!(resolve_model_alias_edit_source(content, "my-alias", &[]).is_err());
+    assert!(resolve_model_alias_edit_source(content, "my-alias", None, &[]).is_err());
     let unambiguous = content.replace("      - name: my-alias\n", "");
-    let source = resolve_model_alias_edit_source(&unambiguous, "my-alias", &[]).unwrap();
-    assert!(edit_model_alias_in_yaml(content, "my-alias", &source, "renamed", "", false).is_err());
+    let source = resolve_model_alias_edit_source(&unambiguous, "my-alias", None, &[]).unwrap();
+    assert!(edit_model_alias_in_yaml(content, "my-alias", None, &source, "renamed", "", false).is_err());
 }
 
 #[test]
@@ -93,7 +94,7 @@ fn alias_regression_source_id_does_not_retarget_after_reordering() {
 
 #[test]
 fn alias_regression_edit_snapshot_rejects_recreated_alias_and_missing_revision() {
-    let context = model_alias_edit_context(BASE, "my-alias", &[]).unwrap();
+    let context = model_alias_edit_context(BASE, "my-alias", None, &[]).unwrap();
     assert!(validate_model_alias_revision(BASE, Some(&context.revision)).is_ok());
     let reformatted = serde_norway::to_string(&json(BASE)).unwrap();
     assert!(validate_model_alias_revision(&reformatted, Some(&context.revision)).is_ok());
@@ -105,7 +106,7 @@ fn alias_regression_edit_snapshot_rejects_recreated_alias_and_missing_revision()
 #[test]
 fn alias_regression_readers_use_raw_and_last_override_values() {
     let content = format!("{BASE}payload:\n  override:\n    - models: [{{name: my-alias, protocol: codex}}]\n      params: {{reasoning.effort: high, service_tier: priority}}\n    - models: [{{name: my-alias, protocol: codex}}]\n      params: {{reasoning.effort: low}}\n  override-raw:\n    - models: [{{name: my-alias}}]\n      params: {{service_tier: '\"flex\"'}}\n");
-    let context = model_alias_edit_context(&content, "my-alias", &[]).unwrap();
+    let context = model_alias_edit_context(&content, "my-alias", None, &[]).unwrap();
     assert_eq!(context.effort.as_deref(), Some("low"));
     assert!(!context.fast);
     assert_eq!(json(&unchanged_save(&content)), json(&content));
@@ -124,9 +125,9 @@ fn alias_regression_readers_use_raw_and_last_override_values() {
 #[test]
 fn alias_regression_explicit_changes_keep_raw_conditions_and_other_fields() {
     let content = format!("{BASE}payload:\n  override-raw:\n    - models:\n        - name: my-alias\n          protocol: ''\n          headers: {{X-Client: premium}}\n          from-protocol: responses\n          match: [{{metadata.client: codex}}]\n        - name: other-alias\n      params: {{reasoning.effort: '\"high\"', service_tier: '\"priority\"', temperature: '0.2'}}\n");
-    let source = resolve_model_alias_edit_source(&content, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(&content, "my-alias", None, &[]).unwrap();
     let updated =
-        edit_model_alias_in_yaml(&content, "my-alias", &source, "renamed", "low", true).unwrap();
+        edit_model_alias_in_yaml(&content, "my-alias", None, &source, "renamed", "low", true).unwrap();
     let before = json(&content);
     let after = json(&updated);
     assert!(
@@ -147,7 +148,7 @@ fn alias_regression_explicit_changes_keep_raw_conditions_and_other_fields() {
         rules[1]["params"],
         serde_json::json!({"reasoning.effort":"\"low\"", "service_tier":"\"priority\"", "temperature":"0.2"})
     );
-    let context = model_alias_edit_context(&updated, "renamed", &[]).unwrap();
+    let context = model_alias_edit_context(&updated, "renamed", None, &[]).unwrap();
     assert_eq!(context.effort.as_deref(), Some("low"));
     assert!(context.fast);
 }
@@ -155,9 +156,9 @@ fn alias_regression_explicit_changes_keep_raw_conditions_and_other_fields() {
 #[test]
 fn alias_regression_toggle_fast_preserves_distinct_conditional_efforts() {
     let content = format!("{BASE}payload:\n  override:\n    - models: [{{name: my-alias, protocol: codex, headers: {{X-Client: a}}}}]\n      params: {{reasoning.effort: low, service_tier: flex}}\n    - models: [{{name: my-alias, protocol: codex, headers: {{X-Client: b}}}}]\n      params: {{reasoning.effort: high, service_tier: flex}}\n");
-    let source = resolve_model_alias_edit_source(&content, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(&content, "my-alias", None, &[]).unwrap();
     let updated =
-        edit_model_alias_in_yaml(&content, "my-alias", &source, "my-alias", "high", true).unwrap();
+        edit_model_alias_in_yaml(&content, "my-alias", None, &source, "my-alias", "high", true).unwrap();
     let after = json(&updated);
     let rules = after["payload"]["override"].as_array().unwrap();
     assert_eq!(rules.len(), 2);

@@ -501,6 +501,31 @@ function createState(scenario: BrowserMockScenario) {
         provider: 'Codex OAuth',
         kind: 'codex-oauth',
         oauthChannel: 'codex' as string | null,
+        section: null,
+        providerIndex: null,
+        modelIndex: null,
+      },
+      {
+        sourceModel: 'gpt-5.3',
+        alias: 'best',
+        effort: 'high' as string | null,
+        provider: 'OpenAI-compatible 1',
+        kind: 'openai-compatible',
+        oauthChannel: null,
+        section: 'openai-compatibility',
+        providerIndex: 0,
+        modelIndex: 2,
+      },
+      {
+        sourceModel: 'glm-5',
+        alias: 'best',
+        effort: 'high' as string | null,
+        provider: 'OpenAI-compatible 2',
+        kind: 'openai-compatible',
+        oauthChannel: null,
+        section: 'openai-compatibility',
+        providerIndex: 1,
+        modelIndex: 1,
       },
     ],
     speedAliases: [
@@ -1152,6 +1177,9 @@ export function createBrowserMockRuntime(
           provider: readString(request.provider) || 'Browser Mock',
           kind: readString(request.kind) || 'codex-oauth',
           oauthChannel: readString(request.oauthChannel) || null,
+          section: null,
+          providerIndex: null,
+          modelIndex: null,
         };
         state.thinkingAliases = [...state.thinkingAliases.filter((item) => item.alias !== entry.alias), entry];
         return clone(state.thinkingAliases);
@@ -1169,6 +1197,9 @@ export function createBrowserMockRuntime(
           provider: readString(request.provider) || 'Browser Mock',
           kind: readString(request.kind) || 'codex-oauth',
           oauthChannel: readString(request.oauthChannel) || null,
+          section: null,
+          providerIndex: null,
+          modelIndex: null,
         };
         state.speedAliases = [...state.speedAliases.filter((item) => item.alias !== entry.alias), entry];
         return clone(state.speedAliases);

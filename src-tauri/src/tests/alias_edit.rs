@@ -2,8 +2,8 @@ use super::support::*;
 use super::*;
 
 fn edit(content: &str, original: &str, alias: &str, effort: &str, fast: bool) -> String {
-    let source = resolve_model_alias_edit_source(content, original, &[]).unwrap();
-    edit_model_alias_in_yaml(content, original, &source, alias, effort, fast).unwrap()
+    let source = resolve_model_alias_edit_source(content, original, None, &[]).unwrap();
+    edit_model_alias_in_yaml(content, original, None, &source, alias, effort, fast).unwrap()
 }
 
 fn value(content: &str) -> serde_json::Value {
@@ -65,12 +65,12 @@ fn alias_edit_resolves_remapped_api_model_without_a_visible_upstream() {
     )
     .unwrap();
     let created = add_model_alias_to_yaml(content, &sources[0], "my-alias", "high", false).unwrap();
-    let source = resolve_model_alias_edit_source(&created, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(&created, "my-alias", None, &[]).unwrap();
     assert_eq!(source.source.model, "upstream-gpt");
     assert_eq!(source.source.id, model_alias_edit_source_id("my-alias"));
     assert!(source.source.reasoning_levels.contains(&"high".to_string()));
     let updated =
-        edit_model_alias_in_yaml(&created, "my-alias", &source, "renamed", "low", true).unwrap();
+        edit_model_alias_in_yaml(&created, "my-alias", None, &source, "renamed", "low", true).unwrap();
     let after = value(&updated);
     assert_eq!(
         after["openai-compatibility"][0]["models"][0],
@@ -114,7 +114,7 @@ fn alias_edit_keeps_api_metadata_and_order_on_an_unchanged_save() {
     .unwrap()
     .remove(0);
     let updated =
-        edit_model_alias_in_yaml(content, "my-alias", &source, "my-alias", "", false).unwrap();
+        edit_model_alias_in_yaml(content, "my-alias", None, &source, "my-alias", "", false).unwrap();
     assert_eq!(value(&updated), value(content));
 }
 
@@ -162,7 +162,7 @@ fn alias_edit_switches_to_a_later_model_without_shifting_indices() {
     .unwrap()
     .remove(0);
     let updated =
-        edit_model_alias_in_yaml(content, "my-alias", &source, "my-alias", "high", true).unwrap();
+        edit_model_alias_in_yaml(content, "my-alias", None, &source, "my-alias", "high", true).unwrap();
     let after = value(&updated);
     assert_eq!(
         after["codex-api-key"][0]["models"][0]["name"],
@@ -196,7 +196,7 @@ fn alias_edit_selects_exact_provider_even_with_identical_display_names() {
         .find(|source| source.source.id.starts_with("openai-compatibility:1:0:"))
         .unwrap();
     let updated =
-        edit_model_alias_in_yaml(content, "my-alias", source, "my-alias", "", false).unwrap();
+        edit_model_alias_in_yaml(content, "my-alias", None, source, "my-alias", "", false).unwrap();
     let after = value(&updated);
     assert_eq!(
         after["openai-compatibility"][0]["models"]
@@ -214,9 +214,9 @@ fn alias_edit_selects_exact_provider_even_with_identical_display_names() {
 #[test]
 fn alias_edit_moves_between_api_and_oauth_and_updates_payload_protocol() {
     let content = "openai-compatibility:\n  - name: provider\n    models: [{name: api-model, alias: my-alias}]\noauth-model-alias:\n  codex:\n    - name: oauth-model\n      alias: other-alias\n      fork: true\npayload:\n  override:\n    - models: [{name: my-alias, protocol: openai}]\n      params: {temperature: 0.2, reasoning_effort: high}\n";
-    let source = resolve_model_alias_edit_source(content, "other-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(content, "other-alias", None, &[]).unwrap();
     let updated =
-        edit_model_alias_in_yaml(content, "my-alias", &source, "my-alias", "low", true).unwrap();
+        edit_model_alias_in_yaml(content, "my-alias", None, &source, "my-alias", "low", true).unwrap();
     let after = value(&updated);
     assert!(after["openai-compatibility"][0]["models"]
         .as_array()
@@ -247,7 +247,7 @@ fn alias_edit_moves_between_api_and_oauth_and_updates_payload_protocol() {
     .unwrap()
     .remove(0);
     let updated =
-        edit_model_alias_in_yaml(&content, "my-alias", &source, "renamed", "", false).unwrap();
+        edit_model_alias_in_yaml(&content, "my-alias", None, &source, "renamed", "", false).unwrap();
     let after = value(&updated);
     assert_eq!(
         after["oauth-model-alias"]["codex"]
@@ -261,25 +261,26 @@ fn alias_edit_moves_between_api_and_oauth_and_updates_payload_protocol() {
 
 #[test]
 fn alias_edit_rejects_duplicates_missing_aliases_and_name_collisions() {
-    let source = resolve_model_alias_edit_source(MIXED_PAYLOAD, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(MIXED_PAYLOAD, "my-alias", None, &[]).unwrap();
     assert!(
-        edit_model_alias_in_yaml("port: 8317\n", "missing", &source, "renamed", "", false).is_err()
+        edit_model_alias_in_yaml("port: 8317\n", "missing", None, &source, "renamed", "", false).is_err()
     );
     let duplicate = MIXED_PAYLOAD.replace(
         "      fork: false",
         "      fork: false\n    - name: duplicate\n      alias: MY-ALIAS",
     );
     assert!(
-        edit_model_alias_in_yaml(&duplicate, "my-alias", &source, "renamed", "", false).is_err()
+        edit_model_alias_in_yaml(&duplicate, "my-alias", None, &source, "renamed", "", false).is_err()
     );
     let occupied = MIXED_PAYLOAD.replace(
         "      fork: false",
         "      fork: false\n    - name: another\n      alias: taken",
     );
-    assert!(edit_model_alias_in_yaml(&occupied, "my-alias", &source, "TAKEN", "", false).is_err());
+    assert!(edit_model_alias_in_yaml(&occupied, "my-alias", None, &source, "TAKEN", "", false).is_err());
     assert!(resolve_model_alias_edit_source(
         "codex-api-key:\n  - models: [{name: real-model}]\n",
         "real-model",
+        None,
         &[]
     )
     .is_err());
@@ -287,7 +288,7 @@ fn alias_edit_rejects_duplicates_missing_aliases_and_name_collisions() {
 
 #[test]
 fn alias_edit_keeps_an_unavailable_oauth_source_and_existing_effort() {
-    let source = resolve_model_alias_edit_source(MIXED_PAYLOAD, "my-alias", &[]).unwrap();
+    let source = resolve_model_alias_edit_source(MIXED_PAYLOAD, "my-alias", None, &[]).unwrap();
     assert_eq!(source.source.model, "gpt-test");
     assert_eq!(source.source.reasoning_levels, ["high"]);
     let updated = edit(MIXED_PAYLOAD, "my-alias", "renamed", "high", true);

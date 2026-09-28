@@ -35,6 +35,9 @@ type ThinkingAliasEntry = {
   provider: string;
   kind: string;
   oauthChannel?: string | null;
+  section?: string | null;
+  providerIndex?: number | null;
+  modelIndex?: number | null;
 };
 
 type SpeedAliasEntry = {
@@ -44,6 +47,9 @@ type SpeedAliasEntry = {
   provider: string;
   kind: string;
   oauthChannel?: string | null;
+  section?: string | null;
+  providerIndex?: number | null;
+  modelIndex?: number | null;
 };
 
 type AliasListEntry = ThinkingAliasEntry & {
@@ -187,6 +193,18 @@ const thinkingAliasProviderDetail = (kind: string, provider: string) => (
 const thinkingAliasSourceDetail = (source: ThinkingAliasSource) => (
   thinkingAliasProviderDetail(source.kind, source.provider)
 );
+
+type AliasEntryLocation = {
+  section?: string | null;
+  providerIndex?: number | null;
+  modelIndex?: number | null;
+};
+
+const aliasLocationArgs = (entry: AliasEntryLocation) => ({
+  section: entry.section ?? undefined,
+  providerIndex: entry.providerIndex ?? undefined,
+  modelIndex: entry.modelIndex ?? undefined,
+});
 
 export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { askConfirmation, confirmationDialog } = useConfirmation();
@@ -370,6 +388,9 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
   const normalizedEffort = effort.trim().toLowerCase();
   const defaultAlias = defaultModelAlias(selectedSource?.model, normalizedEffort, fastEnabled);
   const uniqueDefaultAlias = uniqueModelAlias(defaultAlias, sources.map((source) => source.model));
+  const aliasReusesExistingName = !editingEntry
+    && Boolean(alias.trim())
+    && entries.some((entry) => entry.alias.trim().toLowerCase() === alias.trim().toLowerCase());
   const availableEfforts = selectedSource?.reasoningLevels ?? [];
   const visibleEffortOptions = availableEfforts.map((value) => {
     const preset = effortOptions.find((option) => option.value === value);
@@ -424,6 +445,7 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
           sourceId: selectedSource.id, alias: normalizedAlias,
           effort: normalizedEffort, fast: fastEnabled, originalAlias: editingEntry.alias,
           expectedRevision: editingRevision,
+          ...aliasLocationArgs(editingEntry),
         });
         setNotice(t('aliases.updated', { alias: normalizedAlias }));
       } else if (normalizedEffort) {
@@ -502,7 +524,10 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
     setError('');
     setNotice('');
     try {
-      const context = await invoke<ModelAliasEditContext>('get_model_alias_edit_source', { alias: entry.alias });
+      const context = await invoke<ModelAliasEditContext>('get_model_alias_edit_source', {
+        alias: entry.alias,
+        ...aliasLocationArgs(entry),
+      });
       const source = context.source;
       setEditingEntry(entry);
       setEditingSource(source);
@@ -534,11 +559,13 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
         await invoke<ThinkingAliasEntry[]>('delete_thinking_alias', {
           alias: entry.alias,
           oauthChannel: entry.oauthChannel,
+          ...aliasLocationArgs(entry),
         });
       } else {
         await invoke<SpeedAliasEntry[]>('delete_speed_alias', {
           alias: entry.alias,
           oauthChannel: entry.oauthChannel,
+          ...aliasLocationArgs(entry),
         });
       }
       setNotice(t('aliases.deleted', { alias: entry.alias }));
@@ -789,6 +816,9 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
                   : t('aliases.aliasName.selectFirst')}
                 disabled={Boolean(busyAlias)}
               />
+              {aliasReusesExistingName ? (
+                <small className="thinking-model-hint">{t('aliases.aliasName.reuseHint')}</small>
+              ) : null}
             </div>
 
             <div className="thinking-alias-preview">
@@ -830,7 +860,19 @@ export function ThinkingAliasesPage({ embedded = false }: { embedded?: boolean }
                 <span>{t('aliases.empty.description')}</span>
               </div>
             ) : entries.map((entry) => (
-              <article className="thinking-alias-row" key={`${entry.kind}:${entry.provider}:${entry.alias}`}>
+              <article
+                className="thinking-alias-row"
+                key={[
+                  entry.kind,
+                  entry.section ?? 'oauth',
+                  entry.providerIndex ?? '',
+                  entry.modelIndex ?? '',
+                  entry.oauthChannel ?? '',
+                  entry.provider,
+                  entry.sourceModel,
+                  entry.alias,
+                ].join(':')}
+              >
                 <div className="thinking-alias-route">
                   <div className="thinking-alias-route-source">
                     <span title={entry.sourceModel}>{entry.sourceModel}</span>
